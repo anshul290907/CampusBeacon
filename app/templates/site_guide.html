@@ -1,0 +1,13 @@
+<section class="site-guide{% if request.endpoint == 'main.login' %} site-guide-login{% else %} site-guide-floating{% endif %}" data-site-guide aria-label="CampusBeacon site guide">
+  <div class="guide-greeting" data-guide-greeting role="status">Hi! 😊 You’re doing great exploring CampusBeacon. Need a hand finding your way?</div>
+  <button class="guide-launcher" type="button" data-guide-toggle aria-label="Open CampusBeacon guide" aria-expanded="false" aria-controls="guide-panel">
+    <span class="guide-diamond" aria-hidden="true">✦</span><span class="guide-face" aria-hidden="true"><i class="guide-eye"></i><i class="guide-eye"></i><i class="guide-smile"></i></span>
+  </button>
+  <div class="guide-panel" id="guide-panel" data-guide-panel hidden>
+    <header class="guide-header"><div><strong>CampusBeacon Guide</strong><span>Here to help you find your way</span></div><button type="button" data-guide-close aria-label="Close guide">×</button></header>
+    <div class="guide-messages" data-guide-messages aria-live="polite"><p class="guide-message guide-message-bot">Hi! 😊 I can help you find events, clubs, notices, the campus map, or your dashboard. What are you looking for?</p></div>
+    <div class="guide-suggestions"><button type="button" data-guide-question="How do I find events?">Find events</button><button type="button" data-guide-question="Where are the clubs?">Explore clubs</button><button type="button" data-guide-question="Where can I see notices?">See notices</button></div>
+    <form class="guide-form" data-guide-form><label class="visually-hidden" for="guide-input">Ask the CampusBeacon guide</label><input id="guide-input" data-guide-input maxlength="240" placeholder="Ask how to find something…" autocomplete="off"><button type="submit" aria-label="Send message">➤</button></form>
+    <p class="guide-note">Site guide · No private account details needed</p>
+  </div>
+</section>
