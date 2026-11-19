@@ -45,6 +45,8 @@ def create_app(test_config=None):
     # Create database tables
     with app.app_context():
         db.create_all()
+        from .catalog import ensure_catalog_data
+        ensure_catalog_data()
 
     # Inject current user into templates
     @app.context_processor
