@@ -1,1 +1,81 @@
-{% extends 'base.html' %}{% block title %}Notices · CampusBeacon{% endblock %}{% block content %}<div class="container py-5"><span class="eyebrow">STAY IN THE LOOP</span><h1>Notices & deadlines</h1><div class="panel mt-4">{% for n in notices %}<article class="notice-row"><div><span class="badge-soft">{{ n.category }}</span><h2>{{ n.title }}</h2><p>{{ n.content }}</p><small class="text-secondary">Issued by {{ n.issuer }} · {{ n.created_at.strftime('%d %b %Y') }}</small></div>{% if n.deadline %}<div class="deadline"><small>DEADLINE</small><strong>{{ n.deadline.strftime('%d %b') }}</strong></div>{% endif %}</article>{% else %}<div class="empty">No notices published yet.</div>{% endfor %}</div></div>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Notices · CampusBeacon{% endblock %}
+{% block content %}
+<div class="container py-5">
+  <span class="eyebrow">STAY IN THE LOOP</span>
+  <h1>Notices & deadlines</h1>
+  <p class="lead text-secondary">Official notices from NSUT’s notification portal, alongside CampusBeacon notices.</p>
+  <p id="notice-sync-status" class="small text-secondary" aria-live="polite">
+    {% if sync.last_error %}Could not reach the NSUT portal. Showing the latest saved notices.{% elif sync.last_synced %}Last synced from NSUT at {{ sync.last_synced.strftime('%d %b %Y, %I:%M:%S %p') }}. This page checks for updates automatically.{% else %}Connecting to the NSUT notices portal…{% endif %}
+  </p>
+  <div id="notices-list" class="panel mt-4" aria-live="polite">
+    {% for n in notices %}
+      <article class="notice-row">
+        <div>
+          <span class="badge-soft">{{ n.category }}</span>
+          <h2>{{ n.title }}</h2>
+          <p>{{ n.content }}</p>
+          <small class="text-secondary">Issued by {{ n.issuer }} · {{ n.created_at.strftime('%d %b %Y') }}</small>
+          {% if n.category == 'Official NSUT' %}<div><a class="small" href="https://www.imsnsit.org/imsnsit/notifications.php" target="_blank" rel="noopener noreferrer">View on NSUT portal ↗</a></div>{% elif n.source_url %}<div><a class="small" href="{{ n.source_url }}" target="_blank" rel="noopener noreferrer">View source ↗</a></div>{% endif %}
+        </div>
+        {% if n.deadline %}<div class="deadline"><small>DEADLINE</small><strong>{{ n.deadline.strftime('%d %b') }}</strong></div>{% endif %}
+      </article>
+    {% else %}
+      <div class="empty">No notices are available yet.</div>
+    {% endfor %}
+  </div>
+</div>
+<script>
+(() => {
+  const list = document.getElementById('notices-list');
+  const status = document.getElementById('notice-sync-status');
+  const make = (tag, className, value) => {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (value !== undefined) node.textContent = value;
+    return node;
+  };
+  async function refreshNotices() {
+    try {
+      const response = await fetch('{{ url_for("main.notices_api") }}', {cache: 'no-store'});
+      if (!response.ok) throw new Error('Refresh failed');
+      const data = await response.json();
+      const fragment = document.createDocumentFragment();
+      for (const notice of data.notices) {
+        const article = make('article', 'notice-row');
+        const body = make('div');
+        body.append(make('span', 'badge-soft', notice.category));
+        body.append(make('h2', '', notice.title));
+        body.append(make('p', '', notice.content));
+        body.append(make('small', 'text-secondary', `Issued by ${notice.issuer} · ${notice.created_at}`));
+        if (notice.source_url) {
+          const sourceRow = make('div');
+          const source = make('a', 'small', notice.category === 'Official NSUT' ? 'View on NSUT portal ↗' : 'View source ↗');
+          source.href = notice.source_url;
+          source.target = '_blank';
+          source.rel = 'noopener noreferrer';
+          sourceRow.append(source);
+          body.append(sourceRow);
+        }
+        article.append(body);
+        if (notice.deadline) {
+          const deadline = make('div', 'deadline');
+          deadline.append(make('small', '', 'DEADLINE'));
+          deadline.append(make('strong', '', notice.deadline));
+          article.append(deadline);
+        }
+        fragment.append(article);
+      }
+      if (!data.notices.length) fragment.append(make('div', 'empty', 'No notices are available yet.'));
+      list.replaceChildren(fragment);
+      status.textContent = data.sync_error
+        ? 'Could not reach the NSUT portal. Showing the latest saved notices.'
+        : `Last synced from NSUT at ${data.last_synced || 'just now'}. This page checks for updates automatically.`;
+    } catch (_) {
+      status.textContent = 'Could not refresh notices just now. The latest saved notices are still shown.';
+    }
+  }
+  window.setInterval(refreshNotices, 15000);
+})();
+</script>
+{% endblock %}

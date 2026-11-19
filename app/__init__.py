@@ -2,7 +2,7 @@
 import os
 from flask import Flask, session
 from .config import Config
-from .extensions import db, migrate, csrf, oauth
+from .extensions import db, migrate, csrf
 
 
 def create_app(test_config=None):
@@ -14,6 +14,22 @@ def create_app(test_config=None):
     if test_config:
         app.config.update(test_config)
 
+    # TiDB Cloud requires TLS; keep these MySQL-specific options off SQLite
+    # engines used by tests and local development.
+    if app.config['SQLALCHEMY_DATABASE_URI'].startswith('mysql+pymysql://'):
+        ca_path = os.getenv('TIDB_CA')
+        if not ca_path:
+            raise RuntimeError('Set TIDB_CA in .env to the TiDB CA certificate path.')
+        engine_options = dict(app.config.get('SQLALCHEMY_ENGINE_OPTIONS', {}))
+        connect_args = dict(engine_options.get('connect_args', {}))
+        connect_args.update({
+            'ssl_verify_cert': True,
+            'ssl_verify_identity': True,
+            'ssl_ca': ca_path,
+        })
+        engine_options['connect_args'] = connect_args
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = engine_options
+
     # Create instance folder for SQLite database
     os.makedirs(app.instance_path, exist_ok=True)
 
@@ -21,18 +37,6 @@ def create_app(test_config=None):
     db.init_app(app)
     migrate.init_app(app, db)
     csrf.init_app(app)
-    oauth.init_app(app)
-
-    # Configure Google OAuth
-    if app.config.get('GOOGLE_CLIENT_ID') and app.config.get('GOOGLE_CLIENT_SECRET'):
-        oauth.register(
-            name='google',
-            client_id=app.config['GOOGLE_CLIENT_ID'],
-            client_secret=app.config['GOOGLE_CLIENT_SECRET'],
-            server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-            client_kwargs={'scope': 'openid email profile'}
-        )
-
     # Register routes
     from .routes import bp
     app.register_blueprint(bp)
@@ -57,5 +61,8 @@ def create_app(test_config=None):
             'current_user': user,
             'unread_count': unread
         }
+
+    from .notice_sync import start_notice_sync
+    start_notice_sync(app)
 
     return app

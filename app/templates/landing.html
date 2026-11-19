@@ -4,8 +4,8 @@
 {% block nav %}
 <header class="lp-nav"><div class="lp-nav-in">
   <a class="lp-brand" href="{{ url_for('main.home') }}"><i>✦</i>CampusBeacon</a>
-  {% if current_user %}<a class="btn btn-primary" href="{{ url_for('main.dashboard') }}">Dashboard</a>
-  {% else %}<a class="btn btn-primary" href="{{ url_for('main.login') }}">Sign in</a>{% endif %}
+{% if current_user %}<a class="btn btn-primary" href="{{ url_for('main.dashboard') }}">Dashboard</a>
+  {% else %}<a class="btn btn-primary" href="{{ url_for('main.overview') }}">Let's Begin</a>{% endif %}
 </div></header>
 {% endblock %}
 {% block content %}
@@ -76,10 +76,10 @@
 <!-- CLOSING -->
 <section class="closing">
   <h2 class="big rv">Take a breath.<br><span class="grad">Then take part.</span></h2>
-  <p class="sub rv" style="--d:.1s">Sign in with your campus account and your whole semester falls into place.</p>
+  <p class="sub rv" style="--d:.1s">Find events, clubs, notices, and campus places to make the most of your semester.</p>
   <div class="cta-row rv" style="--d:.2s">
     {% if current_user %}<a class="btn btn-primary" href="{{ url_for('main.dashboard') }}">Go to your dashboard</a>
-    {% else %}<a class="btn btn-primary" href="{{ url_for('main.login') }}">Get started</a>{% endif %}
+    {% else %}<a class="btn btn-primary" href="{{ url_for('main.events') }}">Explore events</a>{% endif %}
     <a class="btn btn-outline-dark" href="{{ url_for('main.events') }}">Just browse</a>
   </div>
 </section>

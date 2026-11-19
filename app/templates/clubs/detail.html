@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% block title %}{{ club.name }} · CampusBeacon{% endblock %}
+{% block content %}
+<div class="container py-5">
+  <a class="small text-primary" href="{{ url_for('main.clubs') }}">← All clubs & societies</a>
+  <div class="detail-card mt-4">
+    <span class="badge-soft">{{ club.category }}</span>
+    <h1>{{ club.name }}</h1>
+    <p class="lead text-secondary">{{ club.description }}</p>
+
+    <div class="row g-4 align-items-center mt-3">
+      <div class="col-lg-7">
+        <h2>{{ profile.heading }}</h2>
+        <p>{{ profile.body }}</p>
+        <h3 class="h5 mt-4">What you can explore</h3>
+        <ul class="mb-0">
+          {% for point in profile.points %}<li class="mb-2">{{ point }}</li>{% endfor %}
+        </ul>
+      </div>
+      <div class="col-lg-5">
+        {% if gallery %}
+          <a href="{{ gallery[0].href }}" target="_blank" rel="noopener noreferrer">
+            <img class="img-fluid rounded-4 w-100" src="{{ gallery[0].url }}" alt="{{ gallery[0].alt }}" loading="lazy">
+          </a>
+          <p class="small text-secondary mt-2">{{ gallery[0].title }} · image from Ashwamedh’s YouTube video</p>
+        {% else %}
+          <img class="img-fluid rounded-4 w-100" src="{{ profile.image }}" alt="{{ profile.alt }}" loading="lazy">
+          <p class="small text-secondary mt-2">Representative {{ club.category|lower }} imagery.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if gallery %}
+      <section class="mt-5" aria-labelledby="club-gallery">
+        <h2 id="club-gallery">Ashwamedh in action</h2>
+        <p class="text-secondary">Photos from videos shared by Ashwamedh’s own channel. Select a photo to watch the full video.</p>
+        <div class="row g-3">
+          {% for photo in gallery %}
+            <div class="col-md-6">
+              <a class="card h-100 overflow-hidden" href="{{ photo.href }}" target="_blank" rel="noopener noreferrer">
+                <img src="{{ photo.url }}" class="card-img-top" alt="{{ photo.alt }}" loading="lazy">
+                <div class="card-body"><h3 class="h5 mb-0">{{ photo.title }}</h3></div>
+              </a>
+            </div>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    <div class="info-box mt-5">
+      <strong>Membership and current events</strong>
+      <p class="mb-0 mt-2">Recruitment dates and activities can change. Follow the linked society page for current announcements and ways to get involved.</p>
+    </div>
+    {% if club.website_url %}
+      <a class="btn btn-primary mt-4" href="{% if club.slug == 'ashwamedh-the-dramatics-society' %}https://linktr.ee/ashwa_medh{% else %}{{ club.website_url }}{% endif %}" target="_blank" rel="noopener noreferrer">{% if club.slug == 'ashwamedh-the-dramatics-society' %}Ashwamedh’s official links{% else %}Visit official information{% endif %} <span aria-hidden="true">↗</span></a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

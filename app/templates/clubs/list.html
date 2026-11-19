@@ -1,1 +1,32 @@
-{% extends 'base.html' %}{% block title %}Clubs · CampusBeacon{% endblock %}{% block content %}<div class="container py-5"><span class="eyebrow">FIND YOUR PEOPLE</span><h1>Clubs & societies</h1><p class="lead text-secondary">Explore communities, creative teams, and technical circles on campus.</p><div class="row g-4 mt-2">{% for c in clubs %}<div class="col-md-6 col-lg-4"><div class="card club-card h-100"><div class="card-body"><span class="badge-soft">{{ c.category }}</span><h3>{{ c.name }}</h3><p>{{ c.description }}</p><div class="small text-primary">{{ c.recruitment_status|capitalize }} recruitment</div></div></div></div>{% else %}<div class="empty">No clubs published yet.</div>{% endfor %}</div></div>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Clubs & Societies · CampusBeacon{% endblock %}
+{% block content %}
+<div class="container py-5">
+  <span class="eyebrow">FIND YOUR PEOPLE</span>
+  <h1>Clubs & societies</h1>
+  <p class="lead text-secondary">Explore NSUT communities, creative teams, technical circles, and student resources.</p>
+  {% set ns = namespace(category='') %}
+  {% for c in clubs %}
+    {% if c.category != ns.category %}
+      {% if not loop.first %}</div>{% endif %}
+      {% set ns.category = c.category %}
+      <h2 class="h4 mt-5 mb-3">{{ c.category }}</h2>
+      <div class="row g-4">
+    {% endif %}
+    <div class="col-md-6 col-lg-4">
+      <a class="card club-card h-100 text-decoration-none" href="{{ url_for('main.club_detail', slug=c.slug) }}">
+        <div class="card-body">
+          <span class="badge-soft">{{ c.category }}</span>
+          <h3>{{ c.name }}</h3>
+          <p>{{ c.description }}</p>
+          <span class="small text-primary">View details <span aria-hidden="true">→</span></span>
+        </div>
+      </a>
+    </div>
+    {% if loop.last %}</div>{% endif %}
+  {% else %}
+    <div class="empty">No clubs published yet.</div>
+  {% endfor %}
+  <p class="small text-secondary mt-4">Recruitment dates can change; check each society’s linked page for current announcements.</p>
+</div>
+{% endblock %}

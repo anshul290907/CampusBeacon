@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block title %}My registrations · CampusBeacon{% endblock %}
+{% block content %}
+<div class="container py-5">
+  <span class="eyebrow">YOUR CAMPUS PLANS</span>
+  <h1>My registrations</h1>
+  <p class="text-secondary">Published-event registrations are stored in the CampusBeacon database and linked to a private key kept in this browser. No sign-in is required.</p>
+  <p class="small text-secondary">Keep this browser’s site data to access these registrations; they are not linked to a verified identity or synced to other devices.</p>
+  <p class="small text-secondary" id="registration-page-feedback" aria-live="polite">Connecting to the CampusBeacon database…</p>
+  <div class="row g-3 mt-3" id="registration-list" aria-live="polite"></div>
+  <div class="empty mt-3" id="registrations-empty">You haven’t registered for any events yet. Browse upcoming events to get started.</div>
+  <p class="small text-secondary mt-3">This project stores registrations on this device only. They are not submitted to event organizers or synced across devices.</p>
+  <a class="btn btn-outline-dark mt-2" href="{{ url_for('main.events') }}">Browse events</a>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static',filename='js/registrations.js') }}"></script>{% endblock %}

@@ -1,1 +1,149 @@
-{% extends 'base.html' %}{% block title %}Campus map · CampusBeacon{% endblock %}{% block content %}<div class="container py-5"><span class="eyebrow">ORIENT YOURSELF</span><h1>Campus map</h1><p class="text-secondary">A simple, expandable directory for verified campus places.</p><div id="map" class="map mt-4"></div><div class="row g-3 mt-3">{% for l in locations %}<div class="col-md-4"><button class="location-card w-100 text-start" onclick="focusPlace({{ l.latitude }},{{ l.longitude }})"><strong>{{ l.name }}</strong><span>{{ l.category }} · {{ l.description }}</span></button></div>{% else %}<div class="empty">No verified locations have been added yet.</div>{% endfor %}</div></div>{% endblock %}{% block scripts %}<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const map=L.map('map').setView([28.6100,77.0370],16);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors'}).addTo(map);{% for l in locations %}L.marker([{{l.latitude}},{{l.longitude}}]).addTo(map).bindPopup('<b>{{l.name}}</b><br>{{l.description}}');{% endfor %}function focusPlace(a,b){map.setView([a,b],18)}</script>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Campus map - CampusBeacon{% endblock %}
+{% block content %}
+<div class="container py-5">
+  <span class="eyebrow">ORIENT YOURSELF</span><h1>Campus map</h1>
+  <p class="text-secondary">Choose a place below to find it. Turn on edit mode to move pins.</p>
+  <div class="map-toolbar d-flex flex-wrap align-items-center gap-2 mt-4">
+    <button class="btn btn-primary" id="toggle-map-edit" type="button" aria-pressed="false">Edit pin locations</button>
+    <button class="btn btn-outline-secondary" id="reset-map-pins" type="button" disabled>Reset pin positions</button>
+    <span id="map-edit-message" class="small text-secondary" aria-live="polite">Pin changes are saved in this browser.</span>
+  </div>
+  <div id="map" class="map mt-3" aria-label="Interactive campus map"></div>
+  <div class="map-legend mt-3" aria-label="Event status legend">
+    <span><i class="map-legend-dot ongoing"></i>Ongoing event</span><span><i class="map-legend-dot upcoming"></i>Upcoming event</span>
+    <span><i class="map-legend-dot finished"></i>Finished event</span><span><i class="map-legend-dot none"></i>No event listed</span>
+  </div>
+  <div class="section-head mt-5"><div><span class="eyebrow">CAMPUS DIRECTORY</span><h2>All places <span class="small text-secondary">{{ locations|length }}</span></h2></div></div>
+  <div class="row g-3 mt-1" id="place-list">
+    {% for l in locations %}<div class="col-md-6 col-xl-4">
+      <button class="location-card map-place-card w-100 text-start" type="button" data-place-id="{{ l.id }}">
+        <strong>{{ l.name }}<span class="place-status" data-place-status>Checking events...</span></strong>
+        <span>{{ l.category }} - {{ l.description }}</span>
+      </button></div>
+    {% else %}<div class="empty">No verified locations have been added yet.</div>{% endfor %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(() => {
+  const places = {{ map_places|tojson }};
+  const serverEvents = {{ map_events|tojson }};
+  const POSITION_KEY = 'campusbeacon.map-pins.v1';
+  const LOCAL_EVENTS_KEY = 'campusbeacon.events.v1';
+  const map = L.map('map').setView([28.6100, 77.0370], 16);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: 'OpenStreetMap contributors', maxNativeZoom: 18, maxZoom: 19 }).addTo(map);
+  const readJson = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key) || 'null') || fallback; } catch (_) { return fallback; } };
+  let savedPositions = readJson(POSITION_KEY, {});
+  document.getElementById('reset-map-pins').disabled = Object.keys(savedPositions).length === 0;
+  let editing = false;
+  let pendingPlace = null;
+  const markers = new Map();
+  const normalize = value => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const localEvents = () => Object.values(readJson(LOCAL_EVENTS_KEY, {}));
+  function venueMatches(event, place) {
+    const venue = normalize(event.venue), name = normalize(place.name);
+    if (!venue || !name) return false;
+    if (name === 'blocks') return venue === name;
+    return venue === name || venue.includes(name);
+  }
+  function phaseOf(event) {
+    const start = new Date(event.startsAt || event.starts_at).getTime();
+    const end = new Date(event.endsAt || event.ends_at).getTime(), now = Date.now();
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+    if (end <= now) return 'finished';
+    if (start <= now) return 'ongoing';
+    return 'upcoming';
+  }
+  function statusFor(place) {
+    const matches = [...serverEvents, ...localEvents()].filter(event => venueMatches(event, place));
+    const phases = matches.map(phaseOf).filter(Boolean);
+    for (const phase of ['ongoing', 'upcoming', 'finished']) if (phases.includes(phase)) return {phase, count:matches.length};
+    return {phase:'none', count:0};
+  }
+  function iconFor(phase) {
+    return L.divIcon({className:'campus-pin-icon',html:'<span class="campus-pin campus-pin--'+phase+'"></span>',iconSize:[24,32],iconAnchor:[12,32],popupAnchor:[0,-29]});
+  }
+  function positionFor(place) {
+    const saved=savedPositions[place.id];
+    return Array.isArray(saved)&&saved.length===2?saved:[place.latitude,place.longitude];
+  }
+  function updateStatusUI() {
+    for (const place of places) {
+      const status=statusFor(place), marker=markers.get(place.id);
+      marker.setIcon(iconFor(status.phase));
+      const popup=document.createElement('div'), title=document.createElement('strong'), detail=document.createElement('div');
+      title.textContent=place.name;
+      detail.textContent=status.count?(status.count===1?'1 event - ':status.count+' events - ')+status.phase:place.category+' - No event listed';
+      popup.append(title,detail); marker.setPopupContent(popup);
+      const card=document.querySelector('[data-place-id="'+place.id+'"]'), badge=card&&card.querySelector('[data-place-status]');
+      if (badge) {
+        badge.className='place-status '+status.phase;
+        badge.textContent=status.count?status.phase.charAt(0).toUpperCase()+status.phase.slice(1)+(status.count>1?' - '+status.count+' events':' event'):'No event listed';
+      }
+    }
+  }
+  function savePosition(place, marker) {
+    const point=marker.getLatLng();
+    savedPositions[place.id]=[point.lat,point.lng];
+    try {
+      localStorage.setItem(POSITION_KEY,JSON.stringify(savedPositions));
+      document.getElementById('map-edit-message').textContent=place.name+' position saved in this browser.';
+      document.getElementById('reset-map-pins').disabled=false;
+    } catch (_) {
+      document.getElementById('map-edit-message').textContent='This browser could not save the pin position.';
+    }
+  }
+  function showMapAndFocus(marker) {
+    const mapNode=document.getElementById('map');
+    mapNode.scrollIntoView({behavior:'smooth',block:'center'});
+    window.setTimeout(()=>window.requestAnimationFrame(()=>{
+      map.invalidateSize({pan:false});
+      map.stop();
+      map.setView(marker.getLatLng(),18,{animate:false});
+      marker.openPopup();
+    }),350);
+  }
+  for (const place of places) {
+    const marker=L.marker(positionFor(place),{icon:iconFor('none'),draggable:false}).addTo(map);
+    markers.set(place.id,marker);
+    marker.on('dragend',()=>savePosition(place,marker));
+    const card=document.querySelector('[data-place-id="'+place.id+'"]');
+    if(card) card.addEventListener('click',()=>{
+      if(editing) {
+        pendingPlace=place;
+        document.getElementById('map-edit-message').textContent='Selected '+place.name+'. Click its correct spot on the map, or drag its pin directly.';
+        showMapAndFocus(marker);
+      } else {
+        showMapAndFocus(marker);
+      }
+    });
+  }
+  map.on('click',event=>{
+    if(!editing||!pendingPlace) return;
+    const place=pendingPlace, marker=markers.get(place.id);
+    marker.setLatLng(event.latlng);
+    savePosition(place,marker);
+    pendingPlace=null;
+    marker.openPopup();
+  });
+  if(places.length>1) map.fitBounds(L.latLngBounds(places.map(positionFor)).pad(0.12));
+  updateStatusUI(); window.setInterval(updateStatusUI,30000);
+  const editButton=document.getElementById('toggle-map-edit');
+  editButton.addEventListener('click',()=>{
+    editing=!editing; markers.forEach(marker=>editing?marker.dragging.enable():marker.dragging.disable());
+    editButton.textContent=editing?'Done editing':'Edit pin locations'; editButton.setAttribute('aria-pressed',String(editing));
+    pendingPlace=null;
+    document.getElementById('map-edit-message').textContent=editing?'Click a place in the list, then click its exact point on the map. You can also drag its pin.':'Pin changes are saved in this browser.';
+  });
+  document.getElementById('reset-map-pins').addEventListener('click',()=>{
+    savedPositions={}; localStorage.removeItem(POSITION_KEY);
+    for(const place of places) markers.get(place.id).setLatLng([place.latitude,place.longitude]);
+    document.getElementById('reset-map-pins').disabled=true;
+    document.getElementById('map-edit-message').textContent='All pins returned to their starting positions.';
+  });
+})();
+</script>
+{% endblock %}

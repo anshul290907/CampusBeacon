@@ -1,0 +1,270 @@
+{% extends 'base.html' %}
+{% block title %}Overview · CampusBeacon{% endblock %}
+{% block content %}
+<div class="container py-5 overview-page">
+  <section class="overview-hero panel">
+    <div>
+      <span class="eyebrow">YOUR CAMPUS, AT A GLANCE</span>
+      <h1><span id="overview-greeting">Good morning</span>.</h1>
+      <p class="lead text-secondary mb-0">Keep notices, reminders, and campus events in one place.</p>
+      <p class="small text-secondary mt-3 mb-0">{{ now.strftime('%A, %d %B %Y') }} · Your pins and deadlines stay in this browser.</p>
+    </div>
+    <a class="btn btn-primary" href="{{ url_for('main.events') }}">Browse all events <span aria-hidden="true">→</span></a>
+  </section>
+
+  <div class="row g-3 my-4">
+    <div class="col-6 col-lg-4"><div class="overview-stat"><span>Happening now</span><strong id="overview-live-count">{{ live_events|length }}</strong><small>live campus events</small></div></div>
+    <div class="col-6 col-lg-4"><div class="overview-stat"><span>Coming up</span><strong id="overview-upcoming-count">{{ upcoming_events|length }}</strong><small>next events listed</small></div></div>
+    <div class="col-12 col-lg-4"><div class="overview-stat"><span>Recent notices</span><strong id="recent-notice-count">{{ recent_notices|length }}</strong><small>from NSUT and CampusBeacon</small></div></div>
+  </div>
+
+  <div class="row g-4">
+    <section class="col-lg-7" aria-labelledby="recent-notices-heading">
+      <div class="section-head"><div><span class="eyebrow">DON’T MISS A THING</span><h2 id="recent-notices-heading">Recent notices</h2></div><a href="{{ url_for('main.notices') }}">All notices →</a></div>
+      <div id="overview-notices" class="overview-notices">
+        {% for n in recent_notices %}
+          <article class="overview-notice" data-notice-id="{{ n.id }}" data-notice-title="{{ n.title }}" data-notice-category="{{ n.category }}" data-notice-issuer="{{ n.issuer }}" data-notice-date="{{ n.created_at.strftime('%d %b %Y') }}" data-notice-source="{{ 'https://www.imsnsit.org/imsnsit/notifications.php' if n.category == 'Official NSUT' else (n.source_url or '') }}">
+            <div class="d-flex justify-content-between align-items-start gap-3"><div><span class="badge-soft">{{ n.category }}</span><h3>{{ n.title }}</h3></div><time class="small text-secondary">{{ n.created_at.strftime('%d %b') }}</time></div>
+            <p class="small text-secondary mb-2">{{ n.content|truncate(130) }}</p>
+            <small class="text-secondary">{{ n.issuer }}</small>
+            <div class="overview-notice-actions">
+              <button type="button" class="btn btn-sm btn-outline-dark" data-pin-notice>Pin notice</button>
+              <label class="small text-secondary">Set reminder <input type="date" class="form-control form-control-sm" data-notice-deadline aria-label="Set a personal deadline for {{ n.title }}"></label>
+              {% if n.category == 'Official NSUT' %}<a class="small" href="https://www.imsnsit.org/imsnsit/notifications.php" target="_blank" rel="noopener noreferrer">Source ↗</a>{% elif n.source_url %}<a class="small" href="{{ n.source_url }}" target="_blank" rel="noopener noreferrer">Source ↗</a>{% endif %}
+            </div>
+          </article>
+        {% else %}<div class="empty">No recent notices yet.</div>{% endfor %}
+      </div>
+    </section>
+
+    <aside class="col-lg-5">
+      <section class="mb-5" aria-labelledby="live-events-heading">
+        <div class="section-head"><div><span class="eyebrow">RIGHT NOW</span><h2 id="live-events-heading">Live events</h2></div></div>
+        <div id="overview-live-events">
+        {% for e in live_events %}
+          <a class="overview-event live" href="{{ url_for('main.event_detail',event_id=e.id) }}"><span class="event-status"><i></i> LIVE</span><h3>{{ e.title }}</h3><p>{{ e.venue }} · Ends {{ e.ends_at.strftime('%I:%M %p') }}</p></a>
+        {% else %}<div class="empty">Nothing is marked live right now. Check what’s coming next.</div>{% endfor %}
+        </div>
+      </section>
+
+      <section aria-labelledby="upcoming-events-heading">
+        <div class="section-head"><div><span class="eyebrow">ON YOUR RADAR</span><h2 id="upcoming-events-heading">Coming up</h2></div><a href="{{ url_for('main.events') }}">All events →</a></div>
+        <div id="overview-upcoming-events">
+        {% for e in upcoming_events %}
+          <a class="overview-event" href="{{ url_for('main.event_detail',event_id=e.id) }}"><span class="badge-soft">{{ e.category }}</span><h3>{{ e.title }}</h3><p>{{ e.starts_at.strftime('%a, %d %b · %I:%M %p') }} · {{ e.venue }}</p></a>
+        {% else %}<div class="empty">No upcoming events are listed.</div>{% endfor %}
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <section class="mt-5" aria-labelledby="pinned-tasks-heading">
+    <div class="section-head"><div><span class="eyebrow">YOUR PERSONAL TASK LIST</span><h2 id="pinned-tasks-heading">Pinned notices & reminders</h2></div><span id="task-summary" class="small text-secondary"></span></div>
+    <div id="pinned-tasks" class="row g-3"><div class="col-12"><div class="empty">Pin a notice or set a reminder above and it will appear here.</div></div></div>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const storageKey = 'campusbeacon.overview.tasks.v1';
+  const noticesNode = document.getElementById('overview-notices');
+  const tasksNode = document.getElementById('pinned-tasks');
+  const summaryNode = document.getElementById('task-summary');
+  const greeting = document.getElementById('overview-greeting');
+  const signatureFor = items => items.map(item => [item.id,item.title,item.issuer,item.created_at].join('~')).join('|');
+  let noticeSignature = Array.from(noticesNode.querySelectorAll('[data-notice-id]')).map(card => [card.dataset.noticeId,card.dataset.noticeTitle,card.dataset.noticeIssuer,card.dataset.noticeDate].join('~')).join('|');
+  const hour = new Date().getHours();
+  greeting.textContent = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
+  const readTasks = () => {
+    try { return JSON.parse(localStorage.getItem(storageKey) || '{}'); }
+    catch (_) { return {}; }
+  };
+  const writeTasks = tasks => localStorage.setItem(storageKey, JSON.stringify(tasks));
+  const make = (tag, className, text) => {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+  const noticeData = card => ({
+    id: card.dataset.noticeId,
+    title: card.dataset.noticeTitle,
+    category: card.dataset.noticeCategory,
+    issuer: card.dataset.noticeIssuer,
+    date: card.dataset.noticeDate,
+    source: card.dataset.noticeSource
+  });
+
+  function renderTasks() {
+    const tasks = readTasks();
+    const pinned = Object.values(tasks).filter(task => task.pinned || task.deadline);
+    pinned.sort((a, b) => (a.deadline || '9999-12-31').localeCompare(b.deadline || '9999-12-31'));
+    const deadlines = pinned.filter(task => task.deadline).length;
+    summaryNode.textContent = `${pinned.filter(task => task.pinned).length} pinned · ${deadlines} personal deadlines`;
+    tasksNode.replaceChildren();
+    if (!pinned.length) {
+      const col = make('div', 'col-12');
+      col.append(make('div', 'empty', 'Pin a notice or set a reminder above and it will appear here.'));
+      tasksNode.append(col);
+      return;
+    }
+    for (const task of pinned) {
+      const col = make('div', 'col-md-6 col-xl-4');
+      const card = make('article', 'task-card');
+      card.append(make('span', 'badge-soft', task.pinned ? 'PINNED NOTICE' : 'REMINDER'));
+      card.append(make('h3', '', task.title));
+      card.append(make('p', 'small text-secondary', task.deadline ? `Your deadline · ${new Date(`${task.deadline}T00:00:00`).toLocaleDateString(undefined, {day:'numeric',month:'short',year:'numeric'})}` : `Posted ${task.date || ''}`));
+      const actions = make('div', 'd-flex gap-3 align-items-center');
+      if (task.source) {
+        const source = make('a', 'small', 'Open source ↗');
+        source.href = task.source;
+        source.target = '_blank';
+        source.rel = 'noopener noreferrer';
+        actions.append(source);
+      }
+      const remove = make('button', 'btn btn-sm btn-outline-secondary', task.pinned ? 'Unpin' : 'Remove reminder');
+      remove.type = 'button';
+      remove.dataset.removeTask = task.id;
+      actions.append(remove);
+      card.append(actions);
+      col.append(card);
+      tasksNode.append(col);
+    }
+  }
+
+  function syncNoticeControls() {
+    const tasks = readTasks();
+    noticesNode.querySelectorAll('[data-notice-id]').forEach(card => {
+      const task = tasks[card.dataset.noticeId] || {};
+      const pin = card.querySelector('[data-pin-notice]');
+      const date = card.querySelector('[data-notice-deadline]');
+      if (pin) pin.textContent = task.pinned ? 'Unpin notice' : 'Pin notice';
+      if (date) date.value = task.deadline || '';
+    });
+  }
+
+  noticesNode.addEventListener('click', event => {
+    const pin = event.target.closest('[data-pin-notice]');
+    if (!pin) return;
+    const card = pin.closest('[data-notice-id]');
+    const data = noticeData(card);
+    const tasks = readTasks();
+    const task = tasks[data.id] || {...data, pinned:false, deadline:''};
+    task.pinned = !task.pinned;
+    tasks[data.id] = task.pinned || task.deadline ? task : undefined;
+    if (!tasks[data.id]) delete tasks[data.id];
+    writeTasks(tasks);
+    syncNoticeControls();
+    renderTasks();
+  });
+
+  noticesNode.addEventListener('change', event => {
+    const date = event.target.closest('[data-notice-deadline]');
+    if (!date) return;
+    const card = date.closest('[data-notice-id]');
+    const data = noticeData(card);
+    const tasks = readTasks();
+    const task = tasks[data.id] || {...data, pinned:false, deadline:''};
+    task.deadline = date.value;
+    tasks[data.id] = task.pinned || task.deadline ? task : undefined;
+    if (!tasks[data.id]) delete tasks[data.id];
+    writeTasks(tasks);
+    renderTasks();
+  });
+
+  tasksNode.addEventListener('click', event => {
+    const remove = event.target.closest('[data-remove-task]');
+    if (!remove) return;
+    const tasks = readTasks();
+    const task = tasks[remove.dataset.removeTask];
+    if (task && task.pinned) { task.pinned = false; if (task.deadline) tasks[task.id] = task; else delete tasks[task.id]; }
+    else delete tasks[remove.dataset.removeTask];
+    writeTasks(tasks);
+    syncNoticeControls();
+    renderTasks();
+  });
+
+  renderTasks();
+  syncNoticeControls();
+  function renderSavedEvents() {
+    let events = {};
+    try { events = JSON.parse(localStorage.getItem('campusbeacon.events.v1') || '{}'); } catch (_) {}
+    const liveList = document.getElementById('overview-live-events');
+    const upcomingList = document.getElementById('overview-upcoming-events');
+    document.querySelectorAll('[data-local-overview-event]').forEach(card => card.remove());
+    for (const event of Object.values(events)) {
+      const phase = new Date(event.endsAt).getTime() <= Date.now() ? 'finished' : new Date(event.startsAt).getTime() <= Date.now() ? 'ongoing' : 'upcoming';
+      if (phase !== 'ongoing' && phase !== 'upcoming') continue;
+      const list = phase === 'ongoing' ? liveList : upcomingList;
+      if (!list || list.querySelector(`[data-local-overview-event="${event.id}"]`)) continue;
+      const card = make('article', `overview-event${phase === 'ongoing' ? ' live' : ''}`);
+      card.dataset.localOverviewEvent = event.id;
+      if (phase === 'ongoing') card.append(make('span', 'event-status', '● LIVE'));
+      else card.append(make('span', 'badge-soft', event.category));
+      card.append(make('h3', '', event.title));
+      const when = phase === 'ongoing'
+        ? `Until ${new Date(event.endsAt).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}`
+        : new Date(event.startsAt).toLocaleString([], {weekday:'short',day:'numeric',month:'short',hour:'numeric',minute:'2-digit'});
+      card.append(make('p', '', `${event.venue} · ${when}`));
+      list.append(card);
+    }
+    const liveCount = liveList.querySelectorAll('[data-local-overview-event],a.overview-event').length;
+    const upcomingCount = upcomingList.querySelectorAll('[data-local-overview-event],a.overview-event').length;
+    document.getElementById('overview-live-count').textContent = liveCount;
+    document.getElementById('overview-upcoming-count').textContent = upcomingCount;
+    liveList.querySelector('.empty')?.classList.toggle('d-none', liveCount > 0);
+    upcomingList.querySelector('.empty')?.classList.toggle('d-none', upcomingCount > 0);
+  }
+  renderSavedEvents();
+  window.setInterval(renderSavedEvents, 30000);
+  async function refreshNotices() {
+    try {
+      const response = await fetch('{{ url_for("main.notices_api") }}', {cache:'no-store'});
+      if (!response.ok) return;
+      const data = await response.json();
+      const latest = data.notices.slice(0, 8);
+      const signature = signatureFor(latest);
+      if (signature === noticeSignature) return;
+      const fragment = document.createDocumentFragment();
+      for (const notice of latest) {
+        const card = make('article', 'overview-notice');
+        card.dataset.noticeId = notice.id;
+        card.dataset.noticeTitle = notice.title;
+        card.dataset.noticeCategory = notice.category;
+        card.dataset.noticeIssuer = notice.issuer;
+        card.dataset.noticeDate = notice.created_at;
+        card.dataset.noticeSource = notice.source_url || '';
+        const top = make('div', 'd-flex justify-content-between align-items-start gap-3');
+        const heading = make('div');
+        heading.append(make('span', 'badge-soft', notice.category));
+        heading.append(make('h3', '', notice.title));
+        top.append(heading, make('time', 'small text-secondary', notice.created_at));
+        card.append(top, make('p', 'small text-secondary mb-2', notice.content.length > 130 ? `${notice.content.slice(0,127)}…` : notice.content));
+        card.append(make('small', 'text-secondary', notice.issuer));
+        const actions = make('div', 'overview-notice-actions');
+        const pin = make('button', 'btn btn-sm btn-outline-dark', 'Pin notice');
+        pin.type = 'button'; pin.dataset.pinNotice = '';
+        const label = make('label', 'small text-secondary', 'Set reminder ');
+        const date = make('input', 'form-control form-control-sm');
+        date.type = 'date'; date.dataset.noticeDeadline = '';
+        date.setAttribute('aria-label', `Set a personal deadline for ${notice.title}`);
+        label.append(date);
+        actions.append(pin, label);
+        if (notice.source_url) {
+          const source = make('a', 'small', 'Source ↗'); source.href=notice.source_url; source.target='_blank'; source.rel='noopener noreferrer'; actions.append(source);
+        }
+        card.append(actions);
+        fragment.append(card);
+      }
+      noticesNode.replaceChildren(fragment);
+      noticeSignature = signature;
+      document.getElementById('recent-notice-count').textContent = Math.min(data.notices.length, 8);
+      syncNoticeControls();
+    } catch (_) { /* Keep the notices already rendered by the server. */ }
+  }
+  window.setInterval(refreshNotices, 15000);
+})();
+</script>
+{% endblock %}

@@ -1,11 +1,14 @@
 from datetime import datetime
+import hashlib
 from functools import wraps
 from urllib.parse import urlparse
 from flask import Blueprint,render_template,request,redirect,url_for,flash,session,abort,jsonify,current_app
 from sqlalchemy import or_
 from werkzeug.security import safe_join
-from .extensions import db,oauth
+from .extensions import db, csrf
 from .models import *
+from .club_profiles import CATEGORY_PROFILES, ASHWAMEDH_GALLERY
+from .notice_sync import sync_if_due, sync_state, SOURCE_URL
 bp=Blueprint('main',__name__)
 def login_required(f):
  @wraps(f)
@@ -26,18 +29,17 @@ def roles(*allowed):
 def current(): return User.query.get(session.get('user_id')) if session.get('user_id') else None
 @bp.get('/')
 def home(): return render_template('landing.html',events=Event.query.filter_by(status='published').order_by(Event.starts_at).limit(3).all(),clubs=Club.query.filter_by(publication_status='published').limit(3).all())
+@bp.get('/overview')
+def overview():
+ now=datetime.utcnow()
+ events=Event.query.filter_by(status='published').all()
+ live_events=sorted([e for e in events if e.starts_at<=now<=e.ends_at],key=lambda e:e.starts_at)
+ upcoming_events=sorted([e for e in events if e.starts_at>now],key=lambda e:e.starts_at)
+ order=(Notice.category=='Official NSUT').desc()
+ recent_notices=Notice.query.filter_by(publication_status='published').order_by(order,Notice.created_at.desc()).limit(8).all()
+ return render_template('overview.html',now=now,live_events=live_events,upcoming_events=upcoming_events[:4],next_event=upcoming_events[0] if upcoming_events else None,recent_notices=recent_notices)
 @bp.get('/login')
-def login(): return render_template('auth/login.html',oauth_ready=bool(current_app.config['GOOGLE_CLIENT_ID']))
-@bp.get('/auth/google')
-def google_login():
- if not current_app.config['GOOGLE_CLIENT_ID']: flash('Google OAuth is not configured. Add credentials to .env.','warning'); return redirect(url_for('main.login'))
- google=oauth.create_client('google'); return google.authorize_redirect(url_for('main.google_callback',_external=True))
-@bp.get('/auth/google/callback')
-def google_callback():
- google=oauth.create_client('google'); token=google.authorize_access_token(); info=google.userinfo(); email=info.get('email','').lower().strip(); domain=email.rsplit('@',1)[-1] if '@' in email else ''
- if not info.get('email_verified') or domain not in current_app.config['ALLOWED_EMAIL_DOMAINS']: flash('Only verified accounts from an approved NSUT email domain may access CampusBeacon.','danger'); return redirect(url_for('main.login'))
- u=User.query.filter_by(email=email).first() or User(email=email,name=info.get('name',email.split('@')[0]),google_sub=info.get('sub'))
- u.google_sub=info.get('sub'); u.name=info.get('name',u.name); u.profile_image_url=info.get('picture'); u.last_login_at=datetime.utcnow(); db.session.add(u); db.session.commit(); session['user_id']=u.id; return redirect(url_for('main.dashboard'))
+def login(): return render_template('auth/login.html')
 @bp.post('/logout')
 def logout(): session.clear(); flash('You have been signed out.','success'); return redirect(url_for('main.home'))
 @bp.get('/dashboard')
@@ -49,7 +51,58 @@ def events():
  q=request.args.get('q','').strip(); category=request.args.get('category',''); query=Event.query.filter_by(status='published');
  if q: query=query.filter(or_(Event.title.ilike(f'%{q}%'),Event.description.ilike(f'%{q}%')))
  if category: query=query.filter_by(category=category)
- return render_template('events/list.html',events=query.order_by(Event.starts_at).all(),q=q,category=category,categories=['Hackathon','Workshop','Cultural','Competition','Seminar','Sports','Other'])
+ now=datetime.utcnow(); events=query.all()
+ past=sorted([e for e in events if e.ends_at<now],key=lambda e:e.starts_at,reverse=True)
+ live=sorted([e for e in events if e.starts_at<=now<=e.ends_at],key=lambda e:e.starts_at)
+ upcoming=sorted([e for e in events if e.starts_at>now],key=lambda e:e.starts_at)
+ return render_template('events/list.html',past_events=past,live_events=live,upcoming_events=upcoming,now=now,q=q,category=category,categories=['Hackathon','Workshop','Cultural','Competition','Seminar','Sports','Other'])
+@bp.get('/registrations')
+def registrations(): return render_template('registrations.html')
+
+@bp.get('/api/registrations')
+def api_guest_registrations():
+ key_hash=_guest_registration_key_hash()
+ if not key_hash: return jsonify({'error':'A valid browser registration key is required.'}),400
+ rows=(GuestRegistration.query.join(Event).filter(GuestRegistration.key_hash==key_hash,GuestRegistration.status=='active',Event.status=='published').order_by(Event.starts_at).all())
+ return jsonify({'registrations':[{'id':r.event.id,'title':r.event.title,'category':r.event.category,'venue':r.event.venue,'startsAt':r.event.starts_at.isoformat(),'endsAt':r.event.ends_at.isoformat(),'registeredAt':r.registered_at.isoformat()} for r in rows]})
+
+@bp.post('/api/events/<int:event_id>/registrations')
+@csrf.exempt
+def api_register_guest(event_id):
+ key_hash=_guest_registration_key_hash()
+ if not key_hash: return jsonify({'error':'A valid browser registration key is required.'}),400
+ e=Event.query.get_or_404(event_id); now=datetime.utcnow()
+ if e.status!='published' or e.starts_at<=now or (e.registration_deadline and e.registration_deadline<now):
+  return jsonify({'error':'Registration is closed for this event.'}),409
+ row=GuestRegistration.query.filter_by(event_id=e.id,key_hash=key_hash).first()
+ if row and row.status=='active': return jsonify({'message':'Already registered.'}),200
+ if e.capacity:
+  user_count=Registration.query.filter_by(event_id=e.id,status='active').count()
+  guest_count=GuestRegistration.query.filter_by(event_id=e.id,status='active').count()
+  if user_count+guest_count>=e.capacity: return jsonify({'error':'This event is full.'}),409
+ if row:
+  row.status='active'; row.registered_at=now; row.cancelled_at=None
+ else:
+  row=GuestRegistration(event_id=e.id,key_hash=key_hash,status='active',registered_at=now)
+  db.session.add(row)
+ db.session.commit()
+ return jsonify({'message':'Registration saved.','registration':{'id':e.id,'title':e.title,'category':e.category,'venue':e.venue,'startsAt':e.starts_at.isoformat(),'endsAt':e.ends_at.isoformat(),'registeredAt':row.registered_at.isoformat()}}),201
+
+@bp.delete('/api/events/<int:event_id>/registrations')
+@csrf.exempt
+def api_cancel_guest_registration(event_id):
+ key_hash=_guest_registration_key_hash()
+ if not key_hash: return jsonify({'error':'A valid browser registration key is required.'}),400
+ row=GuestRegistration.query.filter_by(event_id=event_id,key_hash=key_hash,status='active').first()
+ if not row: return jsonify({'error':'Registration not found.'}),404
+ row.status='cancelled'; row.cancelled_at=datetime.utcnow(); db.session.commit()
+ return jsonify({'message':'Registration removed.'})
+
+def _guest_registration_key_hash():
+ raw=request.headers.get('X-CampusBeacon-Registration-Key','').strip().lower()
+ if len(raw)!=64 or any(char not in '0123456789abcdef' for char in raw): return None
+ return hashlib.sha256(raw.encode('ascii')).hexdigest()
+
 @bp.get('/events/<int:event_id>')
 def event_detail(event_id):
  e=Event.query.get_or_404(event_id); u=current(); reg=Registration.query.filter_by(user_id=u.id,event_id=e.id,status='active').first() if u else None; fav=Favorite.query.filter_by(user_id=u.id,event_id=e.id).first() if u else None; return render_template('events/detail.html',event=e,registration=reg,favorite=fav)
@@ -69,11 +122,34 @@ def favorite(event_id):
  if not Favorite.query.filter_by(user_id=session['user_id'],event_id=event_id).first(): db.session.add(Favorite(user_id=session['user_id'],event_id=event_id)); db.session.commit(); flash('Event saved.','success')
  return redirect(request.referrer or url_for('main.events'))
 @bp.get('/clubs')
-def clubs(): return render_template('clubs/list.html',clubs=Club.query.filter_by(publication_status='published').all())
+def clubs(): return render_template('clubs/list.html',clubs=Club.query.filter_by(publication_status='published').order_by(Club.category,Club.name).all())
+@bp.get('/clubs/<slug>')
+def club_detail(slug):
+ c=Club.query.filter_by(slug=slug,publication_status='published').first_or_404()
+ return render_template('clubs/detail.html',club=c,profile=CATEGORY_PROFILES.get(c.category,CATEGORY_PROFILES['Recreational']),gallery=ASHWAMEDH_GALLERY if slug=='ashwamedh-the-dramatics-society' else [])
 @bp.get('/notices')
-def notices(): return render_template('notices/list.html',notices=Notice.query.filter_by(publication_status='published').order_by(Notice.created_at.desc()).all())
+def notices():
+ sync_if_due(current_app._get_current_object())
+ order=(Notice.category=='Official NSUT').desc()
+ rows=Notice.query.filter_by(publication_status='published').order_by(order,Notice.created_at.desc()).all()
+ return render_template('notices/list.html',notices=rows,sync=sync_state())
+@bp.get('/api/notices')
+def notices_api():
+ sync_if_due(current_app._get_current_object())
+ order=(Notice.category=='Official NSUT').desc()
+ rows=Notice.query.filter_by(publication_status='published').order_by(order,Notice.created_at.desc()).all()
+ return jsonify({
+  'notices':[{'id':n.id,'title':n.title,'content':n.content,'category':n.category,'issuer':n.issuer,'created_at':n.created_at.strftime('%d %b %Y'),'deadline':n.deadline.strftime('%d %b') if n.deadline else None,'source_url':SOURCE_URL if n.source_url and n.source_url.startswith(SOURCE_URL) else None} for n in rows],
+  'last_synced':sync_state()['last_synced'].strftime('%d %b %Y, %I:%M:%S %p') if sync_state()['last_synced'] else None,
+  'sync_error':bool(sync_state()['last_error']),
+ })
 @bp.get('/campus-map')
-def campus_map(): return render_template('map.html',locations=CampusLocation.query.filter_by(publication_status='published').all())
+def campus_map():
+ locations=CampusLocation.query.filter_by(publication_status='published').order_by(CampusLocation.name).all()
+ events=Event.query.filter_by(status='published').all()
+ map_places=[{'id':p.id,'name':p.name,'description':p.description,'category':p.category,'latitude':p.latitude,'longitude':p.longitude} for p in locations]
+ map_events=[{'title':e.title,'venue':e.venue,'startsAt':e.starts_at.isoformat(),'endsAt':e.ends_at.isoformat()} for e in events]
+ return render_template('map.html',locations=locations,map_places=map_places,map_events=map_events)
 @bp.route('/notes',methods=['GET','POST'])
 @login_required
 def notes():
