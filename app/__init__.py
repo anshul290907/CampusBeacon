@@ -31,7 +31,8 @@ def create_app(test_config=None):
         app.config['SQLALCHEMY_ENGINE_OPTIONS'] = engine_options
 
     # Create instance folder for SQLite database
-    os.makedirs(app.instance_path, exist_ok=True)
+    if os.getenv('VERCEL') != '1':
+        os.makedirs(app.instance_path, exist_ok=True)
 
     # Initialize extensions
     db.init_app(app)
