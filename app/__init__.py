@@ -1,5 +1,6 @@
 
 import os
+import certifi
 from flask import Flask, session
 from .config import Config
 from .extensions import db, migrate, csrf
@@ -17,9 +18,7 @@ def create_app(test_config=None):
     # TiDB Cloud requires TLS; keep these MySQL-specific options off SQLite
     # engines used by tests and local development.
     if app.config['SQLALCHEMY_DATABASE_URI'].startswith('mysql+pymysql://'):
-        ca_path = os.getenv('TIDB_CA')
-        if not ca_path:
-            raise RuntimeError('Set TIDB_CA in .env to the TiDB CA certificate path.')
+        ca_path = os.getenv('TIDB_CA') or certifi.where()
         engine_options = dict(app.config.get('SQLALCHEMY_ENGINE_OPTIONS', {}))
         connect_args = dict(engine_options.get('connect_args', {}))
         connect_args.update({
