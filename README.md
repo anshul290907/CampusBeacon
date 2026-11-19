@@ -43,3 +43,8 @@ Use HTTPS, a strong secret key, production environment variables, and Gunicorn o
 
 ## Honest limitations
 Core public-facing flows and protected admin metrics are implemented. Sign-in and private account features are unavailable until a secure authentication method is implemented. Full organizer CRUD, notice moderation UI, uploads, automated reminders, and audit screens are future milestones. Campus coordinates must be verified before adding them as published locations.
+
+
+
+## Contributors
+- *Garima Verma* – [@garimaverma2009](https://github.com)
