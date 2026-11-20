@@ -33,7 +33,7 @@
               {% if n.category == 'Official NSUT' %}<a class="small" href="https://www.imsnsit.org/imsnsit/notifications.php" target="_blank" rel="noopener noreferrer">Source ↗</a>{% elif n.source_url %}<a class="small" href="{{ n.source_url }}" target="_blank" rel="noopener noreferrer">Source ↗</a>{% endif %}
             </div>
           </article>
-        {% else %}<div class="empty">No recent notices yet.</div>{% endfor %}
+        {% else %}<div class="empty">Loading recent notices...</div>{% endfor %}
       </div>
     </section>
 
@@ -264,7 +264,12 @@
       syncNoticeControls();
     } catch (_) { /* Keep the notices already rendered by the server. */ }
   }
-  window.setInterval(refreshNotices, 15000);
+// Fetch notices immediately when the overview page loads.
+refreshNotices();
+
+// Continue refreshing notices every 15 seconds.
+refreshNotices();
+window.setInterval(refreshNotices, 15000);
 })();
 </script>
 {% endblock %}
