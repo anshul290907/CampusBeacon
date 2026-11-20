@@ -19,6 +19,33 @@ def test_google_oauth_routes_are_removed(client):
  assert client.get('/auth/google').status_code==404
  assert client.get('/auth/google/callback').status_code==404
 
+def test_any_visitor_can_create_an_event_saved_to_database(client):
+ from app.models import Event, User
+ page=client.get('/events')
+ assert page.status_code==200 and b'/events/new' in page.data
+ response=client.post('/events/new',data={
+  'title':'Spring Demo Day','description':'Student project showcase.','category':'Workshop','venue':'Main Auditorium',
+  'starts_at':'2030-04-10T10:00','ends_at':'2030-04-10T12:00'
+ })
+ assert response.status_code==302 and response.location.endswith('/events')
+ with client.application.app_context():
+  event=Event.query.filter_by(slug='spring-demo-day').one()
+  assert event.status=='published'
+  assert event.organizer.name=='CampusBeacon Community'
+  assert User.query.filter_by(email='community-submissions@example.invalid').count()==1
+ with client.session_transaction() as session: assert any('Event added and shared' in item[1] for item in session['_flashes'])
+
+def test_public_event_creation_rejects_invalid_dates(client):
+ from app.models import Event
+ response=client.post('/events/new',data={
+  'title':'Bad Event','description':'Invalid event.','category':'Other','venue':'Hall',
+  'starts_at':'2030-04-10T12:00','ends_at':'2030-04-10T11:00'
+ })
+ assert response.status_code==302
+ with client.application.app_context(): assert Event.query.count()==0
+ with client.session_transaction() as session:
+  assert any('End time must be after the start time.' in item[1] for item in session['_flashes'])
+
 def _create_future_event(client, capacity=None):
  from datetime import datetime, timedelta
  from app.models import Event, User

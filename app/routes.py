@@ -1,5 +1,6 @@
 from datetime import datetime
 import hashlib
+import re
 from functools import wraps
 from urllib.parse import urlparse
 from flask import Blueprint,render_template,request,redirect,url_for,flash,session,abort,jsonify,current_app
@@ -56,6 +57,52 @@ def events():
  live=sorted([e for e in events if e.starts_at<=now<=e.ends_at],key=lambda e:e.starts_at)
  upcoming=sorted([e for e in events if e.starts_at>now],key=lambda e:e.starts_at)
  return render_template('events/list.html',past_events=past,live_events=live,upcoming_events=upcoming,now=now,q=q,category=category,categories=['Hackathon','Workshop','Cultural','Competition','Seminar','Sports','Other'])
+
+@bp.post('/events/new')
+def create_event():
+ title=request.form.get('title','').strip()
+ description=request.form.get('description','').strip()
+ category=request.form.get('category','').strip()
+ venue=request.form.get('venue','').strip()
+ starts_raw=request.form.get('starts_at','').strip()
+ ends_raw=request.form.get('ends_at','').strip()
+ errors=[]
+ for value,label,limit in ((title,'Event name',180),(description,'Description',None),(category,'Category',60),(venue,'Venue',180)):
+  if not value: errors.append(f'{label} is required.')
+  elif limit and len(value)>limit: errors.append(f'{label} must be {limit} characters or fewer.')
+ try: starts_at=datetime.fromisoformat(starts_raw) if starts_raw else None
+ except ValueError: starts_at=None
+ try: ends_at=datetime.fromisoformat(ends_raw) if ends_raw else None
+ except ValueError: ends_at=None
+ if not starts_at: errors.append('Start time must be a valid date and time.')
+ if not ends_at: errors.append('End time must be a valid date and time.')
+ if starts_at and ends_at and ends_at<=starts_at: errors.append('End time must be after the start time.')
+ if errors:
+  for message in errors: flash(message,'danger')
+  return redirect(url_for('main.events'))
+ base_slug=re.sub(r'[^a-z0-9]+','-',title.lower()).strip('-') or 'event'
+ slug=base_slug
+ suffix=2
+ while Event.query.filter_by(slug=slug).first():
+  slug=f'{base_slug}-{suffix}'
+  suffix+=1
+ try:
+  organizer=User.query.filter_by(email='community-submissions@example.invalid').first()
+  if not organizer:
+   organizer=User(email='community-submissions@example.invalid',name='CampusBeacon Community',role='organizer')
+   db.session.add(organizer)
+   db.session.flush()
+  event=Event(title=title,slug=slug,description=description,category=category,venue=venue,starts_at=starts_at,ends_at=ends_at,organizer_id=organizer.id,status='published')
+  db.session.add(event)
+  db.session.commit()
+ except Exception:
+  db.session.rollback()
+  current_app.logger.exception('Unable to save a public event submission')
+  flash('The event could not be saved. Please try again.','danger')
+  return redirect(url_for('main.events'))
+ flash('Event added and shared with everyone.','success')
+ return redirect(url_for('main.events'))
+
 @bp.get('/registrations')
 def registrations(): return render_template('registrations.html')
 
